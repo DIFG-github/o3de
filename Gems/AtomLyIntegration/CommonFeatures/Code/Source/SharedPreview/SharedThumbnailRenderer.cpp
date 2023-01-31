@@ -108,7 +108,8 @@ namespace AZ
                 ThumbnailConfig thumbnailConfig;
                 AZ::RPI::MaterialSourceData materialSourceData;
                 materialSourceData.m_materialType = AZ::RPI::AssetUtils::GetSourcePathByAssetId(assetInfo.m_assetId);
-                auto outcome = materialSourceData.CreateMaterialAsset(AZ::Uuid::CreateRandom(), "", false);
+                auto outcome = materialSourceData.CreateMaterialAsset(
+                    AZ::Uuid::CreateRandom(), "", AZ::RPI::MaterialAssetProcessingMode::PreBake, false);
 
                 if (outcome)
                 {

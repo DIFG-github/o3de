@@ -308,7 +308,8 @@ namespace AZ
 
             AZStd::string GetIntermediateMaterialTypeSourcePath(const AZStd::string& forOriginalMaterialTypeSourcePath)
             {
-                const AZStd::string intermediatePathString = PredictIntermediateMaterialTypeSourcePath(forOriginalMaterialTypeSourcePath);
+                AZStd::string intermediatePathString = PredictIntermediateMaterialTypeSourcePath(forOriginalMaterialTypeSourcePath);
+
                 if (IO::LocalFileIO::GetInstance()->Exists(intermediatePathString.c_str()))
                 {
                     return intermediatePathString;

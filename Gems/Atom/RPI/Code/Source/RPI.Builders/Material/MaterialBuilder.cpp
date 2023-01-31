@@ -29,7 +29,7 @@ namespace AZ
 
         AZStd::string MaterialBuilder::GetBuilderSettingsFingerprint() const
         {
-            return "";
+            return AZStd::string::format("[BuildersShouldFinalizeMaterialAssets=%d]", MaterialBuilderUtils::BuildersShouldFinalizeMaterialAssets());
         }
 
         void MaterialBuilder::RegisterBuilder()
@@ -113,10 +113,9 @@ namespace AZ
 
             if (!parentMaterialPath.empty())
             {
-                // Register dependency on the parent material source file so we can load it and use it's data to build this variant
-                // material. Note, we don't need a direct dependency on the material type because the parent material will depend on it.
-                MaterialBuilderUtils::AddPossibleDependencies(
-                    request.m_sourceFile,
+                // Register dependency on the parent material source file so we can load it and use it's data to build this variant material.
+                // Note, we don't need a direct dependency on the material type because the parent material will depend on it.
+                MaterialBuilderUtils::AddPossibleDependencies(request.m_sourceFile,
                     parentMaterialPath,
                     JobKey,
                     outputJobDescriptor.m_jobDependencyList,
@@ -137,8 +136,7 @@ namespace AZ
                 // At this point the builder does not know which is the case, without loading the .materialtype file and inspecting its data. The builder
                 // avoids that because it could slow things down, and instead just registers both dependencies.
 
-                MaterialBuilderUtils::AddPossibleDependencies(
-                    request.m_sourceFile,
+                MaterialBuilderUtils::AddPossibleDependencies(request.m_sourceFile,
                     materialTypePath,
                     MaterialTypeBuilder::FinalStageJobKey,
                     outputJobDescriptor.m_jobDependencyList,
@@ -146,12 +144,10 @@ namespace AZ
                     false,
                     0);
 
-                const AZStd::string intermediateMaterialTypePath =
-                    MaterialUtils::PredictIntermediateMaterialTypeSourcePath(request.m_sourceFile, materialTypePath);
+                AZStd::string intermediateMaterialTypePath = MaterialUtils::PredictIntermediateMaterialTypeSourcePath(request.m_sourceFile, materialTypePath);
                 if (!intermediateMaterialTypePath.empty())
                 {
-                    MaterialBuilderUtils::AddPossibleDependencies(
-                        request.m_sourceFile,
+                    MaterialBuilderUtils::AddPossibleDependencies(request.m_sourceFile,
                         intermediateMaterialTypePath,
                         MaterialTypeBuilder::FinalStageJobKey,
                         outputJobDescriptor.m_jobDependencyList,
@@ -215,7 +211,9 @@ namespace AZ
                 return {};
             }
 
-            auto materialAssetOutcome = material.GetValue().CreateMaterialAsset(Uuid::CreateRandom(), materialSourceFilePath, ShouldReportMaterialAssetWarningsAsErrors());
+            MaterialAssetProcessingMode processingMode = MaterialBuilderUtils::BuildersShouldFinalizeMaterialAssets() ? MaterialAssetProcessingMode::PreBake : MaterialAssetProcessingMode::DeferredBake;
+
+            auto materialAssetOutcome = material.GetValue().CreateMaterialAsset(Uuid::CreateRandom(), materialSourceFilePath, processingMode, ShouldReportMaterialAssetWarningsAsErrors());
             if (!materialAssetOutcome.IsSuccess())
             {
                 return {};

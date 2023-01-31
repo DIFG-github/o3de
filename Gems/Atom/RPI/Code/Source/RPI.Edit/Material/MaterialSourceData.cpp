@@ -119,7 +119,7 @@ namespace AZ
         }
 
         Outcome<Data::Asset<MaterialAsset>> MaterialSourceData::CreateMaterialAsset(
-            Data::AssetId assetId, const AZStd::string& materialSourceFilePath, bool elevateWarnings) const
+            Data::AssetId assetId, const AZStd::string& materialSourceFilePath, MaterialAssetProcessingMode processingMode, bool elevateWarnings) const
         {
             MaterialAssetCreator materialAssetCreator;
             materialAssetCreator.SetElevateWarnings(elevateWarnings);
@@ -151,17 +151,36 @@ namespace AZ
                                                                return true;
                                                            } };
 
-            // In this case we need to load the material type data in preparation for the material->Finalize() step below.
-            auto materialTypeAssetOutcome = AssetUtils::LoadAsset<MaterialTypeAsset>(
-                materialTypeAssetId.GetValue(), m_materialType.c_str(), AssetUtils::TraceLevel::Error, dontLoadImageAssets);
-            if (!materialTypeAssetOutcome)
+            Data::Asset<MaterialTypeAsset> materialTypeAsset;
+            
+            switch (processingMode)
             {
-                return Failure();
+                case MaterialAssetProcessingMode::DeferredBake:
+                {
+                     // Don't load the material type data, just create a reference to it
+                     materialTypeAsset = Data::Asset<MaterialTypeAsset>{ materialTypeAssetId.GetValue(), azrtti_typeid<MaterialTypeAsset>(), m_materialType };
+                     break;
+                }
+                case MaterialAssetProcessingMode::PreBake:
+                {
+                    // In this case we need to load the material type data in preparation for the material->Finalize() step below.
+                    auto materialTypeAssetOutcome = AssetUtils::LoadAsset<MaterialTypeAsset>(
+                        materialTypeAssetId.GetValue(), m_materialType.c_str(), AssetUtils::TraceLevel::Error, dontLoadImageAssets);
+                    if (!materialTypeAssetOutcome)
+                    {
+                        return Failure();
+                    }
+                    materialTypeAsset = materialTypeAssetOutcome.GetValue();
+                    break;
+                }
+                default:
+                {
+                    AZ_Assert(false, "Unhandled MaterialAssetProcessingMode");
+                    return Failure();
+                }
             }
 
-            Data::Asset<MaterialTypeAsset> materialTypeAsset = materialTypeAssetOutcome.GetValue();
-
-            materialAssetCreator.Begin(assetId, materialTypeAsset);
+            materialAssetCreator.Begin(assetId, materialTypeAsset, processingMode == MaterialAssetProcessingMode::PreBake);
 
             materialAssetCreator.SetMaterialTypeVersion(m_materialTypeVersion);
 
@@ -187,23 +206,42 @@ namespace AZ
                 }
 
                 // Inherit the parent's property values...
-                const MaterialPropertiesLayout* propertiesLayout = parentMaterialAsset.GetValue()->GetMaterialPropertiesLayout();
-
-                if (parentMaterialAsset.GetValue()->GetPropertyValues().size() != propertiesLayout->GetPropertyCount())
+                switch (processingMode)
                 {
-                    AZ_Assert(
-                        false,
-                        "The parent material should have been finalized with %zu properties but it has %zu. Something is out of sync.",
-                        propertiesLayout->GetPropertyCount(),
-                        parentMaterialAsset.GetValue()->GetPropertyValues().size());
-                    return Failure();
-                }
+                    case MaterialAssetProcessingMode::DeferredBake:
+                    {
+                        for (auto& property : parentMaterialAsset.GetValue()->GetRawPropertyValues())
+                        {
+                            materialAssetCreator.SetPropertyValue(property.first, property.second);
+                        }
 
-                for (size_t propertyIndex = 0; propertyIndex < propertiesLayout->GetPropertyCount(); ++propertyIndex)
-                {
-                    materialAssetCreator.SetPropertyValue(
-                        propertiesLayout->GetPropertyDescriptor(MaterialPropertyIndex{ propertyIndex })->GetName(),
-                        parentMaterialAsset.GetValue()->GetPropertyValues()[propertyIndex]);
+                        break;
+                    }
+                    case MaterialAssetProcessingMode::PreBake:
+                    {
+                        const MaterialPropertiesLayout* propertiesLayout = parentMaterialAsset.GetValue()->GetMaterialPropertiesLayout();
+
+                        if (parentMaterialAsset.GetValue()->GetPropertyValues().size() != propertiesLayout->GetPropertyCount())
+                        {
+                            AZ_Assert(false, "The parent material should have been finalized with %zu properties but it has %zu. Something is out of sync.",
+                                propertiesLayout->GetPropertyCount(), parentMaterialAsset.GetValue()->GetPropertyValues().size());
+                            return Failure();
+                        }
+
+                        for (size_t propertyIndex = 0; propertyIndex < propertiesLayout->GetPropertyCount(); ++propertyIndex)
+                        {
+                            materialAssetCreator.SetPropertyValue(
+                                propertiesLayout->GetPropertyDescriptor(MaterialPropertyIndex{propertyIndex})->GetName(),
+                                parentMaterialAsset.GetValue()->GetPropertyValues()[propertyIndex]);
+                        }
+
+                        break;
+                    }
+                    default:
+                    {
+                        AZ_Assert(false, "Unhandled MaterialAssetProcessingMode");
+                        return Failure();
+                    }
                 }
             }
 
@@ -309,10 +347,17 @@ namespace AZ
                 parentSourceAbsPath = AssetUtils::ResolvePathReference(parentSourceAbsPath, parentSourceRelPath);
             }
             
+            // Unlike CreateMaterialAsset(), we can always finalize the material here because we created the MaterialTypeAsset from
+            // the source .materialtype file, so the necessary data is always available.
+            // (In case you are wondering why we don't use CreateMaterialAssetFromSourceData in MaterialBuilder: that would require a
+            // source dependency between the .materialtype and .material file, which would cause all .material files to rebuild when you
+            // edit the .materialtype; it's faster to not read the material type data at all ... until it's needed at runtime)
+            const bool finalize = true;
+
             // Create the material asset from all the previously loaded source data 
             MaterialAssetCreator materialAssetCreator;
             materialAssetCreator.SetElevateWarnings(elevateWarnings);
-            materialAssetCreator.Begin(assetId, materialTypeAsset.GetValue());
+            materialAssetCreator.Begin(assetId, materialTypeAsset.GetValue(), finalize);
             
             materialAssetCreator.SetMaterialTypeVersion(m_materialTypeVersion);
 
